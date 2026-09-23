@@ -1,0 +1,23 @@
+# =========================================================================
+# Peter H. Diamandis Kompendium - .gitignore
+# =========================================================================
+
+# 1. Server-Konfiguration mit Passwörtern & persönlichen Daten
+config.php
+
+# 2. Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 3. Automatische Server-Backups
+*.backup.js
+diamandis-data.backup.js
+
+# 4. Lokale IDE-, System- & Editor-Dateien
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
