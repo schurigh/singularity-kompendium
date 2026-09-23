@@ -1,21 +1,20 @@
 # 🔭 Peter H. Diamandis' Singularity Kompendium
 
-> **Interaktives, KI-gestütztes Lese- und Recherche-Kompendium** für die Zukunfts- und Singularitäts-Essays von Peter H. Diamandis — mit RAG-Q&A, Substack-Crawler und cleverer API-Key-Verwaltung.
+**Interaktives, KI-gestütztes Lese- und Recherche-Kompendium** für die Zukunfts- und Singularitäts-Essays von Peter H. Diamandis — mit RAG-Q&A, Substack-Crawler und cleverer API-Key-Verwaltung.
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-singularity--kompendium.hannes--schurig.de-blue?style=for-the-badge)](https://singularity-kompendium.hannes-schurig.de/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-singularity--kompendium.hannes--schurig.de-blue?style=for-the-badge)](https://singularity-kompendium.hannes-schurig.de/)  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 
 ---
 
 ## 📸 Screenshots
 
-| Artikelübersicht | Artikel-Detailansicht |
+| Startseite | Substack-Scanner |
 |:---:|:---:|
-| ![Artikelübersicht](screenshots/sing-komp_1.webp) | ![Detailansicht](screenshots/sing-komp_2.webp) |
+| ![Startseite](screenshots/sing-komp_1.webp) | ![Substack-Scanner](screenshots/sing-komp_2.webp) |
 
-| KI-Assistent (RAG Q&A) | Substack-Scanner & Admin |
+| Suche & Filter | KI-Assistent (RAG Q&A) |
 |:---:|:---:|
-| ![KI-Assistent](screenshots/sing-komp_3.webp) | ![Scanner](screenshots/sing-komp_4.webp) |
+| ![Suche und Filter](screenshots/sing-komp_3.webp) | ![KI-Assistent RAG QnA](screenshots/sing-komp_4.webp) |
 
 ---
 
@@ -91,10 +90,10 @@ singularity-kompendium/
 ### Voraussetzungen
 
 - **Webserver** mit PHP 7.4+ (für Server-Sync, Proxy und Bilderverwaltung)
-- **Google AI Studio API-Key(s)** — kostenlos unter [aistudio.google.com](https://aistudio.google.com)
+- Optional: **Google AI Studio API-Key(s)** — kostenlos unter [aistudio.google.com](https://aistudio.google.com) (für KI-Fragen und Substack Scanner benötigt)
 - Optional: Python 3.9+ für die CLI-Ingestion (`diamandis-ingest.py`)
 
-> **Hinweis:** Das Frontend (`index.html`) funktioniert auch als **reine statische Datei** ohne PHP-Backend — dann sind Server-Sync und Substack-Crawler deaktiviert.
+**Hinweis:** Das Frontend (`index.html`) zusammen mit dem Daten-Backup (`diamandis-data.js`) funktioniert auch als **reine statische Datei** ohne PHP-Backend — dann sind Server-Sync und Substack-Crawler deaktiviert.
 
 ---
 
@@ -114,14 +113,22 @@ cp config.example.php config.php
 **3. `config.php` anpassen:**
 ```php
 <?php
-// Pfad zum Verzeichnis dieser Datei (absoluter Serverpfad)
-define('BASE_PATH', '/var/www/html/singularity-kompendium/');
-
-// Admin-Passwort für API-Zugriff (wähle ein starkes Passwort!)
+// 1. Admin-Passwort für Schreibzugriffe (Live-Sync, Scanner & AI-Import)
 define('ADMIN_PASSWORD', 'dein-sicheres-passwort');
 
-// Erlaubte Origins für CORS (deine Domain)
-define('ALLOWED_ORIGIN', 'https://deine-domain.de');
+// 2. Pfade zu den Datendateien (Standard: automatisch via __DIR__, meist keine Änderung nötig)
+define('DATA_FILE_PATH', __DIR__ . '/diamandis-data.js');
+define('BACKUP_FILE_PATH', __DIR__ . '/diamandis-data.backup.js');
+
+// 3. Optional, für ein öffentliches Release: Persönliche Daten für Impressum & Datenschutzerklärung (§ 5 TMG / DSGVO)
+define('LEGAL_NAME', 'Dein Name / Organisation');
+define('LEGAL_ADDRESS_LINE1', 'Musterstraße 123');
+define('LEGAL_ADDRESS_LINE2', '12345 Musterstadt');
+define('LEGAL_COUNTRY', 'Deutschland');
+define('LEGAL_EMAIL', 'kontakt@deine-domain.de');
+define('LEGAL_HOSTING_NAME', 'Hosting-Anbieter Name');
+define('LEGAL_HOSTING_ADDRESS', 'Anbieter-Adresse, Deutschland');
+define('LEGAL_HOSTING_URL', 'https://dein-hoster.de');
 ?>
 ```
 
@@ -133,20 +140,7 @@ define('ALLOWED_ORIGIN', 'https://deine-domain.de');
 
 ### Option B: Lokale Nutzung (statisch, ohne Backend)
 
-Einfach `index.html` im Browser öffnen. Server-Sync und Substack-Crawler sind dann nicht verfügbar, aber Lesen, Suchen und RAG-Q&A funktionieren vollständig.
-
----
-
-### Option C: Python CLI für Batch-Ingestion
-
-Für die Massenverarbeitung von Artikeln ohne Browser:
-
-```bash
-pip install google-generativeai requests
-python diamandis-ingest.py
-```
-
-Die CLI fragt interaktiv nach dem Gemini API-Key und verarbeitet neue Artikel direkt in `diamandis-data.js`.
+Einfach `index.html` und `diamandis-data.js` in einen Ordner ablegen und die `index.html` im Browser öffnen. Server-Sync und Substack-Crawler sind dann nicht verfügbar, aber alle Artikel (Stand September 2026) sind vorhanden und Lesen, Suchen und Filtern funktionieren vollständig.
 
 ---
 
