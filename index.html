@@ -300,22 +300,73 @@
       padding: 24px 20px 100px;
     }
 
-    /* EXACT 1 INFO ROW between Header and Inhaltsverzeichnis */
+    /* EXACT 1 INFO ROW between Header and Inhaltsverzeichnis (48/52 Split) */
     .stat-row {
       background: var(--bg-card);
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 12px 18px;
+      border-radius: 12px;
+      padding: 16px;
       margin: 16px 0 28px 0;
       font-size: 0.88rem;
       color: var(--text-secondary);
       display: flex;
       align-items: center;
+      gap: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .stat-col-media {
+      flex: 0 0 calc(48% - 10px);
+      max-width: calc(48% - 10px);
+      display: flex;
+      align-items: center;
       justify-content: center;
+    }
+
+    .stat-col-media img {
+      width: 100%;
+      height: auto;
+      border-radius: 8px;
+      display: block;
+      object-fit: cover;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .stat-col-stats {
+      flex: 0 0 calc(52% - 10px);
+      max-width: calc(52% - 10px);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      justify-content: center;
+    }
+
+    .stat-general-stats,
+    .stat-article-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      justify-content: center;
+    }
+
+    .stat-article-meta .badge {
+      font-size: 0.82rem;
+      padding: 4px 10px;
+    }
+
+    .stat-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      line-height: 1.4;
+      font-size: 0.86rem;
+      color: var(--text-secondary);
       flex-wrap: wrap;
-      gap: 12px;
-      line-height: 1.5;
-      text-align: center;
     }
 
     .stat-badge {
@@ -328,6 +379,19 @@
 
     .stat-divider {
       color: var(--border);
+    }
+
+    @media (max-width: 640px) {
+      .stat-row {
+        flex-direction: column;
+        gap: 16px;
+        padding: 12px;
+      }
+      .stat-col-media,
+      .stat-col-stats {
+        flex: 0 0 100%;
+        max-width: 100%;
+      }
     }
 
     /* Table of Contents */
@@ -1275,6 +1339,9 @@
           <button class="dropdown-item" id="btn-open-legal">
             <span>⚖️</span> <span>Legal</span>
           </button>
+          <a href="https://github.com/schurigh/singularity-kompendium" target="_blank" rel="noopener noreferrer" class="dropdown-item" id="btn-github-repo">
+            <span>🐙</span> <span>Github Repository</span>
+          </a>
         </div>
       </div>
     </div>
@@ -1282,15 +1349,32 @@
 
   <main class="container">
 
-    <!-- EXACT 1 INFO ROW between Header and Inhaltsverzeichnis -->
+    <!-- EXACT 1 INFO ROW between Header and Inhaltsverzeichnis (48/52 Split) -->
     <div class="stat-row" id="stat-row">
-      <span class="stat-badge"><span id="stat-count">0</span> Beiträge</span>
-      <span class="stat-divider">•</span>
-      <span><strong id="stat-oldest">-</strong> bis <strong id="stat-newest">-</strong></span>
-      <span class="stat-divider">•</span>
-      <span class="stat-badge"><span id="stat-keywords">0</span> Keywords</span>
-      <span class="stat-divider">•</span>
-      <span class="stat-badge"><span id="stat-words">0</span> Wörter gesamt</span>
+      <div class="stat-col-media">
+        <img src="logo.webp" alt="Peter H. Diamandis' Singularity Kompendium Logo" class="stat-logo">
+      </div>
+      <div class="stat-col-stats" id="stat-col-stats">
+        <div id="stat-general-stats" class="stat-general-stats">
+          <div class="stat-item">
+            <span>📖</span>
+            <span class="stat-badge"><span id="stat-count">0</span> Beiträge</span>
+          </div>
+          <div class="stat-item">
+            <span>📅</span>
+            <span><strong id="stat-oldest">-</strong> bis <strong id="stat-newest">-</strong></span>
+          </div>
+          <div class="stat-item">
+            <span>🏷️</span>
+            <span class="stat-badge"><span id="stat-keywords">0</span> Keywords</span>
+          </div>
+          <div class="stat-item">
+            <span>📝</span>
+            <span class="stat-badge"><span id="stat-words">0</span> Wörter gesamt</span>
+          </div>
+        </div>
+        <div id="stat-article-meta" class="stat-article-meta" style="display: none;"></div>
+      </div>
     </div>
 
     <!-- Active Filter Notification -->
@@ -2308,6 +2392,15 @@
 
     // --- FILTER & SEARCH (Combines Quick Search, Tag-Dropdown, Advanced Filters & QA Sources) ---
     function applyFilters() {
+      if (isSingleArticleMode) {
+        isSingleArticleMode = false;
+        restoreGeneralStats();
+        const tocCard = document.querySelector('.toc-card');
+        if (tocCard) tocCard.style.display = 'block';
+        const lazyStatus = document.getElementById('lazy-status');
+        if (lazyStatus) lazyStatus.style.display = 'block';
+      }
+
       const activeTextQuery = advSearchQuery || currentFilterTerm;
       const isAdvFilterActive = (advSelectedTags.size > 0) || (advSearchQuery.trim().length > 0);
 
@@ -2379,7 +2472,20 @@
     }
 
     // --- STAT ROW (Exact 1 Info Row) ---
+    function restoreGeneralStats() {
+      const generalStatsEl = document.getElementById('stat-general-stats');
+      const articleMetaEl = document.getElementById('stat-article-meta');
+      if (generalStatsEl) generalStatsEl.style.display = 'flex';
+      if (articleMetaEl) {
+        articleMetaEl.style.display = 'none';
+        articleMetaEl.innerHTML = '';
+      }
+    }
+
     function updateStats() {
+      if (!isSingleArticleMode) {
+        restoreGeneralStats();
+      }
       const countEl = document.getElementById('stat-count');
       const oldestEl = document.getElementById('stat-oldest');
       const newestEl = document.getElementById('stat-newest');
@@ -2571,17 +2677,21 @@
         }
       }
 
-      article.innerHTML = `
-        <header class="article-header">
+      const metaRowHtml = isSingleArticleMode ? '' : `
           <div class="article-meta-row">
             <span class="badge badge-primary">#${displayIndex}</span>
             <span class="badge">📅 ${escapeHtml(item.displayDate)}</span>
             ${linkHtml}
             ${tagsHtml}
           </div>
+      `;
+
+      article.innerHTML = `
+        <header class="article-header">
+          ${metaRowHtml}
           <h2 class="article-title">
             <a href="?article=${encodeURIComponent(item.id)}" class="permalink-heading" onclick="copyArticlePermalink(event, '${item.id}')" title="Permalink kopieren & öffnen">
-              ${displayIndex}. ${escapeHtml(item.title)}
+              ${isSingleArticleMode ? '' : displayIndex + '. '}${escapeHtml(item.title)}
               <span class="permalink-icon" title="Permalink kopieren">🔗</span>
             </a>
           </h2>
@@ -2606,6 +2716,11 @@
     }
 
     function filterByTag(tag) {
+      if (isSingleArticleMode) {
+        isSingleArticleMode = false;
+        restoreGeneralStats();
+        history.pushState({}, '', window.location.pathname);
+      }
       advSelectedTags.clear();
       advSelectedTags.add(tag);
       advTagMode = 'any';
@@ -5273,12 +5388,35 @@ Deine Aufgabe ist es, Fragen fundiert, präzise und wahrheitsgetreu AUSSCHLIESSL
       const lazyStatus = document.getElementById('lazy-status');
       if (lazyStatus) lazyStatus.style.display = 'none';
 
-      const loadMoreBtn = document.getElementById('btn-load-more');
-      if (loadMoreBtn) loadMoreBtn.style.display = 'none';
+      // Switch stat-row from general stats to article meta
+      const generalStatsEl = document.getElementById('stat-general-stats');
+      const articleMetaEl = document.getElementById('stat-article-meta');
+      if (generalStatsEl) generalStatsEl.style.display = 'none';
 
-      // Update info row
-      const statCount = document.getElementById('stat-count');
-      if (statCount) statCount.textContent = '1';
+      if (articleMetaEl) {
+        articleMetaEl.style.display = 'flex';
+        const words = item.wordCount || countWords(item.summaryHtml);
+        const tagsHtml = (item.tags || []).map(tag =>
+          `<span class="badge badge-tag" onclick="filterByTag('${escapeHtml(tag)}')">🏷️ ${escapeHtml(tag)}</span>`
+        ).join(' ');
+
+        const linkHtml = item.sourceUrl ?
+          `<a href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noopener" class="badge badge-link">Substack Original ↗</a>` : '';
+
+        articleMetaEl.innerHTML = `
+          <div class="stat-item" style="justify-content: space-between; align-items: center; gap: 8px;">
+            <span class="stat-badge">📅 ${escapeHtml(item.displayDate || item.date)}</span>
+            ${linkHtml}
+          </div>
+          ${tagsHtml ? `
+          <div class="stat-item stat-item-tags" style="flex-wrap: wrap; gap: 6px; align-items: center;">
+            ${tagsHtml}
+          </div>` : ''}
+          <div class="stat-item">
+            <span class="stat-badge">⏱️ ca. ${Math.max(1, Math.round(words / 150))} Min. • ${words.toLocaleString('de-DE')} Wörter</span>
+          </div>
+        `;
+      }
 
       // Render only this article in container
       const container = document.getElementById('articles-container');
@@ -5307,6 +5445,7 @@ Deine Aufgabe ist es, Fragen fundiert, präzise und wahrheitsgetreu AUSSCHLIESSL
 
     function exitSingleArticleMode() {
       isSingleArticleMode = false;
+      restoreGeneralStats();
       history.pushState({}, '', window.location.pathname);
 
       const tocCard = document.querySelector('.toc-card');

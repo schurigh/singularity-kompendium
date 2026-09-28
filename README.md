@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.webp" alt="Peter H. Diamandis' Singularity Kompendium" width="100%">
+</p>
+
 # 🔭 Peter H. Diamandis' Singularity Kompendium
 
 **Interaktives, KI-gestütztes Lese- und Recherche-Kompendium** für die Zukunfts- und Singularitäts-Essays von Peter H. Diamandis — mit RAG-Q&A, Substack-Crawler und cleverer API-Key-Verwaltung.
@@ -101,8 +105,8 @@ singularity-kompendium/
 
 **1. Repository klonen:**
 ```bash
-git clone https://github.com/schurigh/stuff.git
-cd stuff/singularity-kompendium
+git clone https://github.com/schurigh/singularity-kompendium.git
+cd singularity-kompendium
 ```
 
 **2. `config.php` aus der Vorlage erstellen:**
