@@ -41,13 +41,16 @@ if (!defined('LEGAL_HOSTING_ADDRESS')) {
 if (!defined('LEGAL_HOSTING_URL')) {
     define('LEGAL_HOSTING_URL', 'https://all-inkl.com');
 }
+if (!defined('GEMINI_FALLBACK_KEYS')) {
+    define('GEMINI_FALLBACK_KEYS', []);
+}
 
 // CORS & JSON Header
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, X-Admin-Password, Authorization");
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     http_response_code(200);
     exit;
 }
@@ -84,6 +87,93 @@ function checkAuth($inputData) {
     }
 
     return hash_equals(ADMIN_PASSWORD, $provided);
+}
+
+// =========================================================================
+// Rate-Limiting für KI-Anfragen (1 Anfrage / Minute, maximal 5 Anfragen / Tag pro IP-Hash)
+// =========================================================================
+function getClientIp() {
+    $ip = '';
+    if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+        $ip = $_SERVER['HTTP_CF_CONNECTING_IP'];
+    } elseif (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $parts = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
+        $ip = trim($parts[0]);
+    } elseif (!empty($_SERVER['REMOTE_ADDR'])) {
+        $ip = $_SERVER['REMOTE_ADDR'];
+    }
+    return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '127.0.0.1';
+}
+
+function getClientIpHash() {
+    $ip = getClientIp();
+    $salt = defined('ADMIN_PASSWORD') && !empty(ADMIN_PASSWORD) ? ADMIN_PASSWORD : 'singularity_salt_2026';
+    return hash('sha256', $ip . '_' . $salt);
+}
+
+function checkAiRateLimit($recordRequest = false) {
+    $hash = getClientIpHash();
+    $file = __DIR__ . '/.rate_limits.json';
+    $today = gmdate('Y-m-d');
+    $now = time();
+
+    $data = [];
+    if (file_exists($file)) {
+        $raw = @file_get_contents($file);
+        if (!empty($raw)) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                $data = $decoded;
+            }
+        }
+    }
+
+    // Veraltete Einträge (> 48h alt) aufräumen
+    foreach ($data as $h => $rec) {
+        if (isset($rec['lastRequestTime']) && ($now - $rec['lastRequestTime']) > 172800) {
+            unset($data[$h]);
+        }
+    }
+
+    $record = $data[$hash] ?? [
+        'lastRequestTime' => 0,
+        'dailyDate' => $today,
+        'dailyCount' => 0
+    ];
+
+    if (($record['dailyDate'] ?? '') !== $today) {
+        $record['dailyDate'] = $today;
+        $record['dailyCount'] = 0;
+    }
+
+    $lastTime = (int)($record['lastRequestTime'] ?? 0);
+    $dailyCount = (int)($record['dailyCount'] ?? 0);
+
+    // 1 Anfrage pro 60s
+    $cooldownRemaining = max(0, 60 - ($now - $lastTime));
+    // Maximal 5 Anfragen pro Tag
+    $dailyRemaining = max(0, 5 - $dailyCount);
+
+    $allowed = ($cooldownRemaining === 0) && ($dailyRemaining > 0);
+
+    if ($recordRequest && $allowed) {
+        $record['lastRequestTime'] = $now;
+        $record['dailyCount'] = $dailyCount + 1;
+        $record['dailyDate'] = $today;
+        $data[$hash] = $record;
+        @file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
+
+        $dailyRemaining = max(0, 5 - $record['dailyCount']);
+        $cooldownRemaining = 60;
+    }
+
+    return [
+        'allowed' => $allowed,
+        'cooldownRemaining' => $cooldownRemaining,
+        'dailyRemaining' => $dailyRemaining,
+        'dailyLimit' => 5,
+        'dailyCount' => $record['dailyCount']
+    ];
 }
 
 // Hilfsfunktion: Daten aus diamandis-data.js einlesen
@@ -266,6 +356,162 @@ function downloadRemoteImage($url, $targetDir, $baseFileName) {
     return null;
 }
 
+// Serverseitiger Google Gemini Proxy (Fallback-Keys bleiben streng geheim auf dem Server)
+function callGeminiServerApi($apiKey, $model, $systemInstruction, $prompt) {
+    $url = "https://generativelanguage.googleapis.com/v1beta/models/" . urlencode($model) . ":generateContent?key=" . urlencode($apiKey);
+
+    $parts = [];
+    if (!empty($systemInstruction)) {
+        $parts[] = ['text' => (string)$systemInstruction];
+    }
+    $parts[] = ['text' => (string)$prompt];
+
+    $postData = json_encode([
+        'contents' => [
+            ['parts' => $parts]
+        ],
+        'generationConfig' => [
+            'temperature' => 0.3
+        ]
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $resBody = '';
+    $httpCode = 0;
+
+    // 1. Standard: cURL (z. B. auf Linux/Apache Webservern)
+    if (function_exists('curl_init')) {
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json; charset=utf-8',
+            'Content-Length: ' . strlen($postData)
+        ]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        $resBody = curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+    }
+
+    // 2. Fallback: stream_context / file_get_contents
+    if (empty($resBody)) {
+        $opts = [
+            'http' => [
+                'method' => 'POST',
+                'header' => "Content-Type: application/json; charset=utf-8\r\n" .
+                            "Content-Length: " . strlen($postData) . "\r\n",
+                'content' => $postData,
+                'timeout' => 60,
+                'ignore_errors' => true
+            ],
+            'ssl' => [
+                'verify_peer' => false,
+                'verify_peer_name' => false
+            ]
+        ];
+        $context = stream_context_create($opts);
+        $resBody = @file_get_contents($url, false, $context);
+        if (isset($http_response_header) && is_array($http_response_header)) {
+            foreach ($http_response_header as $header) {
+                if (preg_match('#HTTP/\S+\s+(\d{3})#i', $header, $matches)) {
+                    $httpCode = (int)$matches[1];
+                }
+            }
+        }
+    }
+
+    // 3. Fallback auf Windows-Systemen ohne OpenSSL/cURL Extension im PHP
+    if (empty($resBody) && (DIRECTORY_SEPARATOR === '\\' || strtoupper(substr(PHP_OS, 0, 3)) === 'WIN')) {
+        $tempJson = tempnam(sys_get_temp_dir(), 'greq_') . '.json';
+        $tempOut = tempnam(sys_get_temp_dir(), 'gres_') . '.json';
+        file_put_contents($tempJson, $postData);
+
+        // 3a. Schnelles natives Windows curl.exe (System32)
+        $curlExe = 'C:\\Windows\\System32\\curl.exe';
+        if (!file_exists($curlExe)) {
+            $curlExe = 'curl.exe';
+        }
+        $curlCmd = escapeshellarg($curlExe) . ' -s -k -X POST ' . escapeshellarg($url) .
+                   ' -H "Content-Type: application/json; charset=utf-8"' .
+                   ' --data-binary @' . escapeshellarg($tempJson) .
+                   ' -o ' . escapeshellarg($tempOut) .
+                   ' -w "%{http_code}"';
+        $curlHttpCode = @exec($curlCmd, $curlOutput, $curlRet);
+        if ($curlRet === 0 && file_exists($tempOut) && filesize($tempOut) > 0) {
+            $resBody = @file_get_contents($tempOut);
+            $httpCode = (int)$curlHttpCode ?: 200;
+        }
+
+        // 3b. Notfall-Fallback: PowerShell falls curl.exe nicht vorhanden
+        if (empty($resBody)) {
+            $safeJson = addslashes($tempJson);
+            $safeOut = addslashes($tempOut);
+            $safeUrl = addslashes($url);
+
+            $psCmd = 'powershell -NoProfile -ExecutionPolicy Bypass -Command ' .
+                     '"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; ' .
+                     '$wc = New-Object Net.WebClient; ' .
+                     '$wc.Headers.Add(\'Content-Type\', \'application/json; charset=utf-8\'); ' .
+                     '$wc.Encoding = [System.Text.Encoding]::UTF8; ' .
+                     'try { ' .
+                     '  $body = [IO.File]::ReadAllText(\'' . $safeJson . '\', [System.Text.Encoding]::UTF8); ' .
+                     '  $res = $wc.UploadString(\'' . $safeUrl . '\', $body); ' .
+                     '  [IO.File]::WriteAllText(\'' . $safeOut . '\', $res, [System.Text.Encoding]::UTF8); ' .
+                     '  exit 0; ' .
+                     '} catch [System.Net.WebException] { ' .
+                     '  if ($_.Response) { ' .
+                     '    $sr = New-Object IO.StreamReader($_.Response.GetResponseStream()); ' .
+                     '    [IO.File]::WriteAllText(\'' . $safeOut . '\', $sr.ReadToEnd(), [System.Text.Encoding]::UTF8); ' .
+                     '  } ' .
+                     '  exit 1; ' .
+                     '} catch { exit 2; }"';
+
+            @exec($psCmd, $psOutput, $psRet);
+            if (file_exists($tempOut) && filesize($tempOut) > 0) {
+                $resBody = @file_get_contents($tempOut);
+                $httpCode = ($psRet === 0) ? 200 : 400;
+            }
+        }
+
+        if (file_exists($tempOut)) {
+            @unlink($tempOut);
+        }
+        if (file_exists($tempJson)) {
+            @unlink($tempJson);
+        }
+    }
+
+    $resBody = preg_replace('/^\xEF\xBB\xBF/', '', trim($resBody));
+    $parsed = json_decode($resBody, true);
+    if ($httpCode === 200 && is_array($parsed)) {
+        $answer = $parsed['candidates'][0]['content']['parts'][0]['text'] ?? null;
+        if (!empty($answer)) {
+            return [
+                'ok' => true,
+                'answer' => $answer,
+                'model' => $model
+            ];
+        }
+    }
+
+    $errorMessage = 'Unbekannter API-Fehler';
+    $errorStatus = '';
+    if (is_array($parsed) && isset($parsed['error'])) {
+        $errorMessage = $parsed['error']['message'] ?? $errorMessage;
+        $errorStatus = $parsed['error']['status'] ?? '';
+    }
+
+    return [
+        'ok' => false,
+        'code' => $httpCode,
+        'status' => $errorStatus,
+        'message' => $errorMessage
+    ];
+}
+
 // Routing & Aktionen
 $action = isset($_GET['action']) ? trim($_GET['action']) : '';
 if (empty($action) && isset($inputData['action'])) {
@@ -273,6 +519,101 @@ if (empty($action) && isset($inputData['action'])) {
 }
 
 switch ($action) {
+    case 'ask_gemini':
+        // Ausführungszeit für KI-Generierung erhöhen (bis zu 3 Minuten)
+        @set_time_limit(180);
+        @ini_set('max_execution_time', '180');
+
+        // 1. Rate-Limiting & Missbrauchsschutz (1 Anfrage/Minute, max. 5/Tag pro IP-Hash)
+        $rateCheck = checkAiRateLimit(false);
+        if (!$rateCheck['allowed']) {
+            http_response_code(429);
+            $errMsg = '';
+            if ($rateCheck['dailyRemaining'] <= 0) {
+                $errMsg = 'Tageslimit von 5 kostenlosen KI-Fragen erreicht. Bitte versuche es morgen wieder oder hinterlege eigene Gemini API Keys in den Einstellungen.';
+            } else {
+                $errMsg = 'Bitte warte noch ' . $rateCheck['cooldownRemaining'] . 's vor der nächsten Frage (1 Anfrage pro Minute erlaubt).';
+            }
+            echo json_encode([
+                'status' => 'error',
+                'message' => $errMsg,
+                'rateLimit' => $rateCheck
+            ]);
+            exit;
+        }
+
+        $prompt = trim($inputData['prompt'] ?? ($inputData['userPrompt'] ?? ''));
+        $systemInstruction = trim($inputData['systemInstruction'] ?? '');
+        if (empty($prompt)) {
+            http_response_code(400);
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Keine Frage bzw. kein Prompt übergeben.'
+            ]);
+            exit;
+        }
+
+        $rawKeys = defined('GEMINI_FALLBACK_KEYS') ? GEMINI_FALLBACK_KEYS : [];
+        if (is_string($rawKeys)) {
+            $rawKeys = array_map('trim', explode(',', $rawKeys));
+        }
+        $keys = is_array($rawKeys) ? array_values(array_filter($rawKeys)) : [];
+
+        if (empty($keys)) {
+            http_response_code(503);
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Auf dem Server sind keine Gemini Fallback-Keys konfiguriert.'
+            ]);
+            exit;
+        }
+
+        // Standard-Modelle für den Server-Proxy (funktionierende Flash-Modelle)
+        $preferredModels = [
+            'gemini-flash-lite-latest',
+            'gemini-3.1-flash-lite',
+            'gemini-3.5-flash-lite',
+            'gemini-3.6-flash',
+            'gemini-3.7-flash',
+            'gemini-3-flash-preview'
+        ];
+        if (isset($inputData['models']) && is_array($inputData['models']) && !empty($inputData['models'])) {
+            $clientModels = array_values(array_filter(array_map('trim', $inputData['models'])));
+            if (!empty($clientModels)) {
+                $preferredModels = array_unique(array_merge($clientModels, $preferredModels));
+            }
+        }
+
+        $lastError = 'Alle Fallback-Keys und Modelle sind derzeit ausgelastet.';
+        foreach ($preferredModels as $model) {
+            foreach ($keys as $idx => $apiKey) {
+                $result = callGeminiServerApi($apiKey, $model, $systemInstruction, $prompt);
+                if ($result['ok']) {
+                    $updatedRate = checkAiRateLimit(true);
+                    echo json_encode([
+                        'status' => 'ok',
+                        'answer' => $result['answer'],
+                        'modelUsed' => $result['model'],
+                        'rateLimit' => $updatedRate
+                    ]);
+                    exit;
+                }
+
+                $lastError = $result['message'];
+                // Bei 404 (Modell existiert nicht): Schleife für dieses Modell sofort abbrechen, nächstes Modell probieren
+                if ($result['code'] === 404 || strpos($lastError, 'is not supported') !== false || strpos($lastError, 'is no longer available') !== false) {
+                    break;
+                }
+            }
+        }
+
+        http_response_code(503);
+        echo json_encode([
+            'status' => 'error',
+            'message' => 'Die KI-Anfrage konnte derzeit nicht beantwortet werden (alle Server-Kontingente erschöpft oder Modelle überlastet). Bitte versuche es später noch einmal oder hinterlege einen eigenen Key in den Einstellungen.'
+        ]);
+        break;
+
     case 'legal_info':
         echo json_encode([
             'status' => 'ok',
@@ -299,7 +640,9 @@ switch ($action) {
             'dataFile' => basename(DATA_FILE_PATH),
             'lastModified' => $fileModTime,
             'backupExists' => $backupExists,
-            'serverTime' => date('c')
+            'serverTime' => date('c'),
+            'hasAiFallback' => (defined('GEMINI_FALLBACK_KEYS') && !empty(GEMINI_FALLBACK_KEYS)),
+            'rateLimit' => checkAiRateLimit(false)
         ]);
         break;
 
@@ -330,6 +673,29 @@ switch ($action) {
         break;
 
     case 'list':
+        $filePath = DATA_FILE_PATH;
+        if (file_exists($filePath)) {
+            $mtime = filemtime($filePath);
+            $size  = filesize($filePath);
+            $etag  = sprintf('"%x-%x"', $mtime, $size);
+            $lastModified = gmdate('D, d M Y H:i:s', $mtime) . ' GMT';
+
+            $ifNoneMatch     = $_SERVER['HTTP_IF_NONE_MATCH'] ?? null;
+            $ifModifiedSince = $_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? null;
+
+            if ($ifNoneMatch === $etag || ($ifModifiedSince && strtotime($ifModifiedSince) >= $mtime)) {
+                http_response_code(304);
+                header('ETag: ' . $etag);
+                header('Last-Modified: ' . $lastModified);
+                header('Cache-Control: no-cache');
+                exit; // 0 Bytes Payload
+            }
+
+            header('ETag: ' . $etag);
+            header('Last-Modified: ' . $lastModified);
+            header('Cache-Control: no-cache');
+        }
+
         $articles = readDataFile();
         echo json_encode([
             'status' => 'ok',
@@ -654,7 +1020,7 @@ switch ($action) {
         http_response_code(400);
         echo json_encode([
             'status' => 'error',
-            'message' => 'Unbekannte Aktion. Erlaubt: status, verify_auth, list, sync_all, save_article, download_article_images, clean_all_images, delete_article.'
+            'message' => 'Unbekannte Aktion. Erlaubt: status, verify_auth, list, sync_all, save_article, download_article_images, clean_all_images, delete_article, legal_info, ask_gemini.'
         ]);
         break;
 }

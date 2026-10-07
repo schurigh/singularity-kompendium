@@ -7,6 +7,9 @@
   <title>Peter H. Diamandis' Singularity Kompendium</title>
   <meta name="description"
     content="Durchsuchbares Kompendium der Newsletter & Substack-Artikel von Peter H. Diamandis mit KI-Zusammenfassungen und Ingestion-Workflow.">
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <link rel="icon" type="image/x-icon" href="img/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="img/apple-touch-icon.png">
 
   <style>
     :root {
@@ -1352,7 +1355,7 @@
     <!-- EXACT 1 INFO ROW between Header and Inhaltsverzeichnis (48/52 Split) -->
     <div class="stat-row" id="stat-row">
       <div class="stat-col-media">
-        <img src="logo.webp" alt="Peter H. Diamandis' Singularity Kompendium Logo" class="stat-logo">
+        <img src="img/logo.webp" alt="Peter H. Diamandis' Singularity Kompendium Logo" class="stat-logo">
       </div>
       <div class="stat-col-stats" id="stat-col-stats">
         <div id="stat-general-stats" class="stat-general-stats">
@@ -1654,10 +1657,11 @@
 
           <div
             style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; flex-wrap: wrap; gap: 8px;">
-            <span style="font-size: 0.78rem; color: var(--text-muted); flex: 1 1 200px;">
-              💡 Die KI durchsucht automatisch die relevantesten Artikel aus der Datenbank als Wissensquelle.
-            </span>
-            <div style="display: flex; gap: 8px; flex-shrink: 0;">
+            <div style="font-size: 0.78rem; color: var(--text-muted); flex: 1 1 220px; display: flex; flex-direction: column; gap: 3px;">
+              <span>💡 Die KI durchsucht automatisch die relevantesten Artikel aus der Datenbank als Wissensquelle.</span>
+              <span id="ai-qa-quota-badge" style="font-weight: 600; color: var(--accent);">🌐 Server-Fallback: 5 von 5 Fragen heute frei</span>
+            </div>
+            <div style="display: flex; gap: 8px; flex-shrink: 0; align-items: center;">
               <button type="button" class="btn-action" id="btn-clear-ai-question" style="font-size: 0.84rem; padding: 6px 12px;">Frage leeren</button>
               <button type="button" class="btn-action btn-action-primary" id="btn-submit-ai-question" style="font-size: 0.84rem; padding: 6px 14px;">⚡ Frage beantworten</button>
             </div>
@@ -1715,7 +1719,7 @@
 
       <div class="modal-body">
         <p style="font-size: 0.88rem; color: var(--text-secondary);">
-          Hinterlege einen oder mehrere <strong>Google Gemini API Keys</strong>. Bei Erreichen von Kontingentlimits wechselt das System automatisch zum nächsten Key. Jeden Tag wird wieder mit <strong>Key #1</strong> gestartet.
+          Optional: Eigene <strong>Google Gemini API Keys</strong> eintragen. Falls hinterlegt, werden deine Keys bevorzugt verwendet; ansonsten greift das System automatisch auf den integrierten Server-Fallback zurück. Bei Kontingentlimits wechselt das System automatisch zum nächsten Key.
         </p>
 
         <div class="form-group" style="margin-top: 14px;">
@@ -1749,7 +1753,7 @@
           <div style="display: flex; flex-direction: column; gap: 10px;">
             <div>
               <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 3px;">1. Default Modell (Hauptmodell):</label>
-              <input type="text" id="gemini-model" class="form-input" value="gemini-2.0-flash" placeholder="gemini-2.0-flash">
+              <input type="text" id="gemini-model" class="form-input" value="gemini-flash-latest" placeholder="gemini-flash-latest">
             </div>
 
             <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;">
@@ -1765,7 +1769,7 @@
                 </div>
                 <div>
                   <label style="font-size: 0.74rem; color: var(--text-secondary); display: block; margin-bottom: 2px;">2. Fallback-Modell 1 (Flash):</label>
-                  <input type="text" id="gemini-model-fallback1" class="form-input" value="gemini-2.0-flash-lite" placeholder="gemini-2.0-flash-lite" style="padding: 4px 8px; font-size: 0.84rem;">
+                  <input type="text" id="gemini-model-fallback1" class="form-input" value="gemini-3.1-flash-lite" placeholder="gemini-3.1-flash-lite" style="padding: 4px 8px; font-size: 0.84rem;">
                 </div>
               </div>
 
@@ -1776,7 +1780,7 @@
                 </div>
                 <div>
                   <label style="font-size: 0.74rem; color: var(--text-secondary); display: block; margin-bottom: 2px;">3. Fallback-Modell 2 (Flash):</label>
-                  <input type="text" id="gemini-model-fallback2" class="form-input" value="gemini-1.5-flash" placeholder="gemini-1.5-flash" style="padding: 4px 8px; font-size: 0.84rem;">
+                  <input type="text" id="gemini-model-fallback2" class="form-input" value="gemini-3.5-flash-lite" placeholder="gemini-3.5-flash-lite" style="padding: 4px 8px; font-size: 0.84rem;">
                 </div>
               </div>
 
@@ -2893,8 +2897,108 @@
       });
     });
 
-    // --- MULTI-API-KEY MANAGEMENT (Daily Reset to Key #1 & Auto-Rotation on Quota Limits) ---
-    function getApiKeys() {
+    // --- MULTI-API-KEY MANAGEMENT (Client-Keys + Server-Side AI Proxy Fallback & Rate Limiting) ---
+    let serverHasAiFallback = true;
+    let serverRateLimit = {
+      dailyLimit: 5,
+      dailyRemaining: 5,
+      cooldownRemaining: 0
+    };
+    let aiCooldownTimerInterval = null;
+
+    function updateAiQuotaUI() {
+      const badge = document.getElementById('ai-qa-quota-badge');
+      const btnSubmit = document.getElementById('btn-submit-ai-question');
+      const userKeys = getUserApiKeys();
+
+      if (userKeys.length > 0) {
+        if (badge) {
+          badge.textContent = `🔑 Eigene Keys aktiv (${userKeys.length} hinterlegt • unbegrenzt)`;
+          badge.style.color = 'var(--accent)';
+        }
+        if (btnSubmit && !aiCooldownTimerInterval) {
+          btnSubmit.disabled = false;
+          btnSubmit.innerHTML = '⚡ Frage beantworten';
+        }
+        return;
+      }
+
+      // Server-Fallback aktiv
+      if (badge) {
+        if (serverRateLimit.dailyRemaining <= 0) {
+          badge.textContent = `⚠️ Server-Fallback: Tageslimit erreicht (0 von ${serverRateLimit.dailyLimit} Fragen frei)`;
+          badge.style.color = '#ef4444';
+        } else {
+          badge.textContent = `🌐 Server-Fallback: ${serverRateLimit.dailyRemaining} von ${serverRateLimit.dailyLimit} Fragen heute frei`;
+          badge.style.color = 'var(--accent)';
+        }
+      }
+
+      if (btnSubmit && !aiCooldownTimerInterval) {
+        if (serverRateLimit.dailyRemaining <= 0) {
+          btnSubmit.disabled = true;
+          btnSubmit.innerHTML = '🚫 Tageslimit erreicht';
+        } else {
+          btnSubmit.disabled = false;
+          btnSubmit.innerHTML = '⚡ Frage beantworten';
+        }
+      }
+    }
+
+    function startAiCooldownCountdown(seconds = 60) {
+      const userKeys = getUserApiKeys();
+      if (userKeys.length > 0) return; // Kein Cooldown für eigene Keys
+
+      let remaining = seconds;
+      const btnSubmit = document.getElementById('btn-submit-ai-question');
+      if (aiCooldownTimerInterval) {
+        clearInterval(aiCooldownTimerInterval);
+        aiCooldownTimerInterval = null;
+      }
+
+      if (btnSubmit) {
+        btnSubmit.disabled = true;
+        btnSubmit.innerHTML = `⏳ Nächste Frage in ${remaining}s`;
+      }
+
+      aiCooldownTimerInterval = setInterval(() => {
+        remaining--;
+        if (remaining <= 0) {
+          clearInterval(aiCooldownTimerInterval);
+          aiCooldownTimerInterval = null;
+          updateAiQuotaUI();
+        } else {
+          if (btnSubmit) {
+            btnSubmit.disabled = true;
+            btnSubmit.innerHTML = `⏳ Nächste Frage in ${remaining}s`;
+          }
+        }
+      }, 1000);
+    }
+
+    async function checkServerAiFallback() {
+      try {
+        const res = await fetch('api.php?action=status');
+        if (res.ok) {
+          const data = await res.json();
+          serverHasAiFallback = (data && data.hasAiFallback !== false);
+          if (data && data.rateLimit) {
+            serverRateLimit = data.rateLimit;
+            if (serverRateLimit.cooldownRemaining > 0) {
+              startAiCooldownCountdown(serverRateLimit.cooldownRemaining);
+            }
+          }
+          updateActiveKeyIndicatorUI();
+          updateAiQuotaUI();
+        }
+      } catch (e) {
+        // Bei rein statischer Offline-Nutzung
+      }
+      return serverHasAiFallback;
+    }
+
+    // Liefert ausschließlich die vom Besucher in localStorage eingetragenen Keys
+    function getUserApiKeys() {
       const json = localStorage.getItem('gemini_api_keys');
       if (json) {
         try {
@@ -2905,9 +3009,13 @@
           }
         } catch (e) {}
       }
-      // Fallback to legacy single key
+      // Fallback zu historischem Einzelschlüssel
       const legacy = (localStorage.getItem('gemini_api_key') || '').trim();
       return legacy ? [legacy] : [];
+    }
+
+    function getApiKeys() {
+      return getUserApiKeys();
     }
 
     function saveApiKeys(keysArray) {
@@ -2922,52 +3030,54 @@
       const savedDate = localStorage.getItem('gemini_active_key_date');
       let activeIndex = parseInt(localStorage.getItem('gemini_active_key_index') || '0', 10);
 
-      // Daily automatic reset to Key #1 at midnight (new day)
+      // Täglicher automatischer Reset auf Key #1 um Mitternacht
       if (savedDate !== today || isNaN(activeIndex) || activeIndex < 0) {
         activeIndex = 0;
         localStorage.setItem('gemini_active_key_index', '0');
         localStorage.setItem('gemini_active_key_date', today);
       }
 
-      const keys = getApiKeys();
-      if (keys.length === 0) {
-        return { key: null, index: 0, tag: '[Kein Key]', total: 0 };
+      const userKeys = getUserApiKeys();
+      if (userKeys.length === 0) {
+        return {
+          key: null,
+          index: 0,
+          tag: serverHasAiFallback ? '[Server-KI]' : '[Kein Key]',
+          total: 0,
+          isUserKey: false
+        };
       }
 
-      if (activeIndex >= keys.length) {
+      if (activeIndex >= userKeys.length) {
         activeIndex = 0;
         localStorage.setItem('gemini_active_key_index', '0');
       }
 
       return {
-        key: keys[activeIndex],
+        key: userKeys[activeIndex],
         index: activeIndex,
-        tag: `[Key #${activeIndex + 1}]`,
-        total: keys.length
+        tag: `[Eigener Key #${activeIndex + 1}]`,
+        total: userKeys.length,
+        isUserKey: true
       };
     }
 
     function rotateToNextApiKey() {
       const today = new Date().toLocaleDateString('en-CA');
-      const keys = getApiKeys();
-      if (keys.length <= 1) {
+      const userKeys = getUserApiKeys();
+      if (userKeys.length <= 1) {
         return getActiveKeyInfo();
       }
 
       let activeIndex = parseInt(localStorage.getItem('gemini_active_key_index') || '0', 10);
       if (isNaN(activeIndex) || activeIndex < 0) activeIndex = 0;
 
-      const nextIndex = (activeIndex + 1) % keys.length;
+      const nextIndex = (activeIndex + 1) % userKeys.length;
       localStorage.setItem('gemini_active_key_index', nextIndex.toString());
       localStorage.setItem('gemini_active_key_date', today);
       updateActiveKeyIndicatorUI();
 
-      return {
-        key: keys[nextIndex],
-        index: nextIndex,
-        tag: `[Key #${nextIndex + 1}]`,
-        total: keys.length
-      };
+      return getActiveKeyInfo();
     }
 
     function resetActiveKeyToFirst() {
@@ -2981,13 +3091,55 @@
     function updateActiveKeyIndicatorUI() {
       const indicator = document.getElementById('active-key-indicator');
       if (indicator) {
+        const userKeys = getUserApiKeys();
         const info = getActiveKeyInfo();
-        if (info.total > 0) {
-          indicator.textContent = `Aktiv: Key #${info.index + 1} (von ${info.total})`;
+        if (userKeys.length > 0) {
+          indicator.textContent = `Aktiv: Eigener Key #${info.index + 1} (von ${userKeys.length}) • Server-Fallback bereit`;
+        } else if (serverHasAiFallback) {
+          indicator.textContent = `Server-Fallback aktiv (${serverRateLimit.dailyRemaining}/5 heute frei)`;
         } else {
           indicator.textContent = `Keine Keys hinterlegt`;
         }
       }
+    }
+
+    // Führt eine KI-Anfrage sicher über das serverseitige PHP-Backend aus (Fallback-Keys bleiben auf dem Server)
+    async function callServerAiProxy(systemPrompt, userPrompt, models = null, statusCallback = null) {
+      if (statusCallback) statusCallback('Server-KI beantwortet deine Frage... Dies kann bis zu 2 Minuten dauern.', true);
+      const res = await fetch('api.php?action=ask_gemini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: systemPrompt || '',
+          prompt: userPrompt || '',
+          models: models || getConfiguredModels()
+        })
+      });
+      if (!res.ok) {
+        let errorMsg = `Serverfehler HTTP ${res.status}`;
+        try {
+          const errData = await res.json();
+          if (errData?.rateLimit) {
+            serverRateLimit = errData.rateLimit;
+            updateAiQuotaUI();
+            if (serverRateLimit.cooldownRemaining > 0) {
+              startAiCooldownCountdown(serverRateLimit.cooldownRemaining);
+            }
+          }
+          if (errData?.message) errorMsg = errData.message;
+        } catch (e) {}
+        throw new Error(errorMsg);
+      }
+      const data = await res.json();
+      if (data.rateLimit) {
+        serverRateLimit = data.rateLimit;
+        updateAiQuotaUI();
+        startAiCooldownCountdown(60);
+      }
+      if (data.status !== 'ok' || !data.answer) {
+        throw new Error(data.message || 'Keine Antwort vom KI-Server erhalten.');
+      }
+      return data.answer;
     }
 
     function renderSettingsApiKeys(keysToRender = null) {
@@ -2995,11 +3147,12 @@
       if (!container) return;
       container.innerHTML = '';
 
-      const keys = keysToRender !== null ? keysToRender : getApiKeys();
+      // In den Einstellungen sieht der Besucher AUSSCHLIESSLICH seine selbst eingetragenen Keys
+      const userKeys = keysToRender !== null ? keysToRender : getUserApiKeys();
       const info = getActiveKeyInfo();
 
-      // Ensure at least 1 row exists
-      const list = keys.length > 0 ? keys : [''];
+      // Mindestens 1 leere Zeile anzeigen, wenn noch keine eigenen Keys eingetragen wurden
+      const list = userKeys.length > 0 ? userKeys : [''];
 
       list.forEach((keyVal, idx) => {
         const row = document.createElement('div');
@@ -3012,7 +3165,7 @@
         label.style.fontSize = '0.82rem';
         label.style.fontWeight = '600';
         label.style.minWidth = '68px';
-        const isActive = (idx === info.index && info.total > 0);
+        const isActive = (idx === info.index && userKeys.length > 0);
         label.style.color = isActive ? 'var(--accent)' : 'var(--text-secondary)';
         label.textContent = `Key #${idx + 1}${isActive ? ' ★' : ''}:`;
 
@@ -3064,11 +3217,23 @@
 
     // --- MODEL CONFIGURATION & GOOGLE API MODEL UPDATER (FREE-TIER VERIFIED) ---
     function getConfiguredModels() {
-      const m1 = (localStorage.getItem('gemini_model') || 'gemini-2.0-flash').trim();
-      const m2 = (localStorage.getItem('gemini_model_fallback1') || 'gemini-2.0-flash-lite').trim();
+      let m1 = (localStorage.getItem('gemini_model') || 'gemini-flash-latest').trim();
+      if (m1 === 'gemini-2.0-flash') {
+        m1 = 'gemini-flash-latest';
+        localStorage.setItem('gemini_model', 'gemini-flash-latest');
+      }
+      let m2 = (localStorage.getItem('gemini_model_fallback1') || 'gemini-3.1-flash-lite').trim();
+      if (m2 === 'gemini-2.0-flash-lite') {
+        m2 = 'gemini-3.1-flash-lite';
+        localStorage.setItem('gemini_model_fallback1', 'gemini-3.1-flash-lite');
+      }
       const fb1Enabled = localStorage.getItem('gemini_model_fallback1_enabled') !== 'false';
       
-      const m3 = (localStorage.getItem('gemini_model_fallback2') || 'gemini-1.5-flash').trim();
+      let m3 = (localStorage.getItem('gemini_model_fallback2') || 'gemini-3.5-flash-lite').trim();
+      if (m3 === 'gemini-1.5-flash') {
+        m3 = 'gemini-3.5-flash-lite';
+        localStorage.setItem('gemini_model_fallback2', 'gemini-3.5-flash-lite');
+      }
       const fb2Enabled = localStorage.getItem('gemini_model_fallback2_enabled') !== 'false';
       
       let m4 = (localStorage.getItem('gemini_model_fallback3') || 'gemini-2.5-pro').trim();
@@ -3084,7 +3249,7 @@
       if (fb2Enabled && m3) list.push(m3);
       if (fb3Enabled && m4) list.push(m4);
 
-      return list.length > 0 ? list : ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash', 'gemini-2.5-pro'];
+      return list.length > 0 ? list : ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-2.5-pro'];
     }
 
     function parseModelVersion(modelName) {
@@ -3155,8 +3320,8 @@
       }
 
       // Prioritized lists of standard Free-Tier models
-      const knownFreeFlash = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash', 'gemini-1.5-flash-8b'];
-      const knownFreePro = ['gemini-2.5-pro', 'gemini-2.0-pro-exp-02-05'];
+      const knownFreeFlash = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+      const knownFreePro = ['gemini-2.5-pro', 'gemini-3-pro-preview', 'gemini-2.0-pro-exp-02-05'];
 
       const flashModels = valid.filter(name => name.toLowerCase().includes('flash') && !name.toLowerCase().includes('pro'));
       const proModels = valid.filter(name => name.toLowerCase().includes('pro') && !name.toLowerCase().includes('flash'));
@@ -3187,9 +3352,9 @@
         }
       }
 
-      if (verifiedFlash.length < 1) verifiedFlash.push('gemini-2.0-flash');
-      if (verifiedFlash.length < 2) verifiedFlash.push('gemini-2.0-flash-lite');
-      if (verifiedFlash.length < 3) verifiedFlash.push('gemini-1.5-flash');
+      if (verifiedFlash.length < 1) verifiedFlash.push('gemini-flash-latest');
+      if (verifiedFlash.length < 2) verifiedFlash.push('gemini-3.1-flash-lite');
+      if (verifiedFlash.length < 3) verifiedFlash.push('gemini-3.5-flash-lite');
 
       // Verify Pro candidates with Free-Tier quota check (strictly excludes models with 0 free quota like gemini-3.1-pro)
       let verifiedPro = null;
@@ -3207,8 +3372,8 @@
 
       return {
         defaultModel: verifiedFlash[0],
-        fallback1: verifiedFlash[1] || 'gemini-2.0-flash-lite',
-        fallback2: verifiedFlash[2] || 'gemini-1.5-flash',
+        fallback1: verifiedFlash[1] || 'gemini-3.1-flash-lite',
+        fallback2: verifiedFlash[2] || 'gemini-3.5-flash-lite',
         fallback3Pro: verifiedPro
       };
     }
@@ -3280,10 +3445,10 @@
 
     document.getElementById('btn-settings').addEventListener('click', () => {
       renderSettingsApiKeys();
-      document.getElementById('gemini-model').value = localStorage.getItem('gemini_model') || 'gemini-2.0-flash';
-      document.getElementById('gemini-model-fallback1').value = localStorage.getItem('gemini_model_fallback1') || 'gemini-2.0-flash-lite';
+      document.getElementById('gemini-model').value = localStorage.getItem('gemini_model') || 'gemini-flash-latest';
+      document.getElementById('gemini-model-fallback1').value = localStorage.getItem('gemini_model_fallback1') || 'gemini-3.1-flash-lite';
       document.getElementById('gemini-model-fallback1-enabled').checked = localStorage.getItem('gemini_model_fallback1_enabled') !== 'false';
-      document.getElementById('gemini-model-fallback2').value = localStorage.getItem('gemini_model_fallback2') || 'gemini-1.5-flash';
+      document.getElementById('gemini-model-fallback2').value = localStorage.getItem('gemini_model_fallback2') || 'gemini-3.5-flash-lite';
       document.getElementById('gemini-model-fallback2-enabled').checked = localStorage.getItem('gemini_model_fallback2_enabled') !== 'false';
       document.getElementById('gemini-model-fallback3').value = localStorage.getItem('gemini_model_fallback3') || 'gemini-2.5-pro';
       document.getElementById('gemini-model-fallback3-enabled').checked = localStorage.getItem('gemini_model_fallback3_enabled') !== 'false';
@@ -3373,10 +3538,10 @@
       const keys = inputs.map(i => i.value.trim()).filter(Boolean);
       saveApiKeys(keys);
 
-      const model = document.getElementById('gemini-model').value.trim() || 'gemini-2.0-flash';
-      const fallback1 = document.getElementById('gemini-model-fallback1').value.trim() || 'gemini-2.0-flash-lite';
+      const model = document.getElementById('gemini-model').value.trim() || 'gemini-flash-latest';
+      const fallback1 = document.getElementById('gemini-model-fallback1').value.trim() || 'gemini-3.1-flash-lite';
       const fb1Enabled = document.getElementById('gemini-model-fallback1-enabled').checked;
-      const fallback2 = document.getElementById('gemini-model-fallback2').value.trim() || 'gemini-1.5-flash';
+      const fallback2 = document.getElementById('gemini-model-fallback2').value.trim() || 'gemini-3.5-flash-lite';
       const fb2Enabled = document.getElementById('gemini-model-fallback2-enabled').checked;
       const fallback3 = document.getElementById('gemini-model-fallback3').value.trim() || 'gemini-2.5-pro';
       const fb3Enabled = document.getElementById('gemini-model-fallback3-enabled').checked;
@@ -3394,6 +3559,8 @@
 
       const activeCount = 1 + (fb1Enabled ? 1 : 0) + (fb2Enabled ? 1 : 0) + (fb3Enabled ? 1 : 0);
       showToast(keys.length > 0 ? `${keys.length} API Key(s) & Einstellungen gespeichert (${activeCount} Modelle aktiv)!` : 'Einstellungen gespeichert!');
+      updateActiveKeyIndicatorUI();
+      updateAiQuotaUI();
       closeModal('modal-settings');
     });
 
@@ -3424,6 +3591,7 @@
           const f2 = document.getElementById('footer-ask-ai');
           if (f1) f1.style.display = 'none';
           if (f2) f2.style.display = 'flex';
+          updateAiQuotaUI();
         }
       });
     });
@@ -3695,6 +3863,10 @@ Antworte AUSSCHLIESSLICH mit einem validen JSON-Objekt im folgenden Format:
 
       let keyInfo = getActiveKeyInfo();
       if (!keyInfo.key) {
+        if (serverHasAiFallback) {
+          const rawAnswer = await callServerAiProxy(reminder, promptText, getConfiguredModels(), statusCallback);
+          return safeParseGeminiJson(rawAnswer);
+        }
         throw new Error('Kein Gemini API Key hinterlegt. Bitte unter ⚙️ Einstellungen hinterlegen.');
       }
 
@@ -3923,7 +4095,7 @@ Antworte wieder ausschließlich mit dem vollständigen, validen JSON-Objekt im v
       }
 
       const keyInfo = getActiveKeyInfo();
-      if (!keyInfo.key) {
+      if (!keyInfo.key && !serverHasAiFallback) {
         alert('Bitte hinterlege zuerst deinen Gemini API Key über das ⚙️ Icon im Header!');
         openModal('modal-settings');
         return;
@@ -4726,6 +4898,7 @@ Antworte wieder ausschließlich mit dem vollständigen, validen JSON-Objekt im v
       if (fAsk) fAsk.style.display = 'none';
 
       updateVisibilityOfResultsButton();
+      updateAiQuotaUI();
       openModal('modal-search-ask');
     });
 
@@ -5071,17 +5244,35 @@ Antworte wieder ausschließlich mit dem vollständigen, validen JSON-Objekt im v
     }
 
     document.getElementById('btn-submit-ai-question').addEventListener('click', async () => {
+      const question = document.getElementById('ai-qa-question').value.trim();
+      if (!question) {
+        alert('Bitte gib eine Frage ein.');
+        return;
+      }
+
       const initialKeyInfo = getActiveKeyInfo();
-      if (!initialKeyInfo.key) {
+      if (!initialKeyInfo.key && !serverHasAiFallback) {
         alert('Bitte hinterlege zuerst deinen Gemini API Key über das ⚙️ Icon im Header!');
         openModal('modal-settings');
         return;
       }
 
-      const question = document.getElementById('ai-qa-question').value.trim();
-      if (!question) {
-        alert('Bitte gib eine Frage ein.');
-        return;
+      // Missbrauchsschutz / Rate-Limiting für Server-Fallback
+      if (!initialKeyInfo.isUserKey) {
+        if (aiCooldownTimerInterval) {
+          alert('Bitte warte kurz, bis der 60-Sekunden-Countdown abgelaufen ist (1 Anfrage pro Minute erlaubt).');
+          return;
+        }
+        if (serverRateLimit.dailyRemaining <= 0) {
+          alert(`Das tägliche Kontingent von ${serverRateLimit.dailyLimit} kostenlosen Fragen über den Server-Fallback ist für heute erreicht.\n\nDu kannst in den Einstellungen (⚙️) einen eigenen kostenlosen Google Gemini API Key hinterlegen, um unbegrenzt Fragen zu stellen.`);
+          return;
+        }
+      }
+
+      const btnSubmit = document.getElementById('btn-submit-ai-question');
+      if (btnSubmit) {
+        btnSubmit.disabled = true;
+        btnSubmit.innerHTML = '⏳ Frage wird beantwortet...';
       }
 
       const statusBox = document.getElementById('ai-qa-status');
@@ -5121,158 +5312,176 @@ Deine Aufgabe ist es, Fragen fundiert, präzise und wahrheitsgetreu AUSSCHLIESSL
 
         const models = getConfiguredModels();
         let answerText = '';
-        let keyInfo = getActiveKeyInfo();
-        const totalKeys = keyInfo.total;
 
-        for (let mIdx = 0; mIdx < models.length; mIdx++) {
-          const currentModel = models[mIdx];
-          const isDefaultModel = (mIdx === 0);
-          const modelLabel = isDefaultModel ? `Default: ${currentModel}` : `Fallback ${mIdx}: ${currentModel}`;
-          let keysTriedForThisModel = 0;
+        // Falls der Besucher KEINE eigenen Keys hinterlegt hat -> Direkt sicherer Server-KI-Proxy!
+        if (!initialKeyInfo.isUserKey) {
+          if (serverHasAiFallback) {
+            setAiQaStatus('Server-KI beantwortet deine Frage... Dies kann bis zu 2 Minuten dauern.', true);
+            answerText = await callServerAiProxy(systemPrompt, userPrompt, models, (m) => setAiQaStatus(m, true));
+          } else {
+            throw new Error('Kein API Key hinterlegt und kein Server-Fallback verfügbar.');
+          }
+        } else {
+          // Besucher hat EIGENE Keys hinterlegt -> Bevorzugt eigene Keys nutzen
+          let keyInfo = getActiveKeyInfo();
+          const totalKeys = keyInfo.total;
+          let userKeysFailed = false;
 
-          while (keysTriedForThisModel < totalKeys) {
-            keyInfo = getActiveKeyInfo();
+          for (let mIdx = 0; mIdx < models.length; mIdx++) {
+            const currentModel = models[mIdx];
+            const isDefaultModel = (mIdx === 0);
+            const modelLabel = isDefaultModel ? `Default: ${currentModel}` : `Fallback ${mIdx}: ${currentModel}`;
+            let keysTriedForThisModel = 0;
 
-            try {
-              setAiQaStatus(`${keyInfo.tag} Analysiere Frage mit [${modelLabel}]...`, true);
-              const u = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${keyInfo.key}`;
-              const r = await fetch(u, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{
-                    parts: [
-                      { text: systemPrompt },
-                      { text: userPrompt }
-                    ]
-                  }],
-                  generationConfig: {
-                    temperature: 0.3
-                  }
-                })
-              });
-              if (!r.ok) {
-                let errorMsg = `HTTP ${r.status}: ${r.statusText}`;
-                try {
-                  const err = await r.json();
-                  if (err?.error?.message) errorMsg = err.error.message;
-                } catch (e) {}
-                throw new Error(errorMsg);
-              }
-              const d = await r.json();
-              answerText = d.candidates?.[0]?.content?.parts?.[0]?.text || 'Keine Antwort erhalten.';
-              break; // Erfolgreich!
-            } catch (err1) {
-              if (isModelNotFoundError(err1)) {
-                console.warn(`Modell [${modelLabel}] nicht gefunden oder nicht unterstützt.`, err1);
-                if (mIdx < models.length - 1) {
-                  const nextModel = models[mIdx + 1];
-                  const nextLabel = `Fallback ${mIdx + 1}: ${nextModel}`;
-                  setAiQaStatus(`⚠️ Modell [${modelLabel}] nicht verfügbar. Wechsle direkt zu [${nextLabel}]...`, true);
-                  break;
-                } else {
-                  throw new Error(`Keines der konfigurierten Modelle (${models.join(', ')}) wird von der Gemini API unterstützt. Bitte in den Einstellungen auf 'Modelle bei Google abfragen & verifizieren' klicken.`);
+            while (keysTriedForThisModel < totalKeys) {
+              keyInfo = getActiveKeyInfo();
+
+              try {
+                setAiQaStatus(`${keyInfo.tag} Analysiere Frage mit [${modelLabel}]...`, true);
+                const u = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${keyInfo.key}`;
+                const r = await fetch(u, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contents: [{
+                      parts: [
+                        { text: systemPrompt },
+                        { text: userPrompt }
+                      ]
+                    }],
+                    generationConfig: {
+                      temperature: 0.3
+                    }
+                  })
+                });
+                if (!r.ok) {
+                  let errorMsg = `HTTP ${r.status}: ${r.statusText}`;
+                  try {
+                    const err = await r.json();
+                    if (err?.error?.message) errorMsg = err.error.message;
+                  } catch (e) {}
+                  throw new Error(errorMsg);
                 }
-              }
-
-              if (isQuotaExhaustedError(err1)) {
-                keysTriedForThisModel++;
-                if (keysTriedForThisModel < totalKeys) {
-                  const oldTag = keyInfo.tag;
-                  keyInfo = rotateToNextApiKey();
-                  setAiQaStatus(`⚠️ Quota für ${oldTag} auf [${modelLabel}] erreicht. Wechsle sofort zu ${keyInfo.tag}...`, true);
-                  continue;
-                } else {
-                  // Alle Keys für dieses Modell quota-exhausted
+                const d = await r.json();
+                answerText = d.candidates?.[0]?.content?.parts?.[0]?.text || 'Keine Antwort erhalten.';
+                break; // Erfolgreich!
+              } catch (err1) {
+                if (isModelNotFoundError(err1)) {
+                  console.warn(`Modell [${modelLabel}] nicht gefunden oder nicht unterstützt.`, err1);
                   if (mIdx < models.length - 1) {
                     const nextModel = models[mIdx + 1];
                     const nextLabel = `Fallback ${mIdx + 1}: ${nextModel}`;
-                    setAiQaStatus(`⚠️ Quota für alle ${totalKeys} Keys auf [${modelLabel}] erschöpft. Wechsle zu [${nextLabel}]...`, true);
-                    break; // Nächstes Modell versuchen
+                    setAiQaStatus(`⚠️ Modell [${modelLabel}] nicht verfügbar. Wechsle direkt zu [${nextLabel}]...`, true);
+                    break;
                   } else {
-                    throw new Error(`Kontingentlimit (Quota) für alle ${models.length} Modelle (${models.join(', ')}) auf allen ${totalKeys} API Keys erreicht.`);
+                    userKeysFailed = true;
+                    break;
                   }
                 }
-              }
 
-              if (!isOverloadError(err1)) {
-                throw err1;
-              }
-
-              // Modell überlastet
-              if (isDefaultModel) {
-                // 1. Versuch Default überlastet -> 10s Pause vor 2. Versuch
-                await sleepWithCountdown(10, (m) => setAiQaStatus(m, true), `${keyInfo.tag} ⚠️ [${modelLabel}] überlastet (High Demand). Warte 10s vor 2. Versuch`);
-                try {
-                  keyInfo = getActiveKeyInfo();
-                  setAiQaStatus(`${keyInfo.tag} 2. Versuch mit [${modelLabel}]...`, true);
-                  const u2 = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${keyInfo.key}`;
-                  const r2 = await fetch(u2, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      contents: [{ parts: [{ text: systemPrompt }, { text: userPrompt }] }],
-                      generationConfig: { temperature: 0.3 }
-                    })
-                  });
-                  if (!r2.ok) {
-                    let errorMsg = `HTTP ${r2.status}: ${r2.statusText}`;
-                    try { const err = await r2.json(); if (err?.error?.message) errorMsg = err.error.message; } catch (e) {}
-                    throw new Error(errorMsg);
-                  }
-                  const d2 = await r2.json();
-                  answerText = d2.candidates?.[0]?.content?.parts?.[0]?.text || 'Keine Antwort erhalten.';
-                  break; // Erfolgreich!
-                } catch (err2) {
-                  if (isModelNotFoundError(err2)) {
-                    console.warn(`Modell [${modelLabel}] wird von der API nicht unterstützt.`, err2);
+                if (isQuotaExhaustedError(err1)) {
+                  keysTriedForThisModel++;
+                  if (keysTriedForThisModel < totalKeys) {
+                    const oldTag = keyInfo.tag;
+                    keyInfo = rotateToNextApiKey();
+                    setAiQaStatus(`⚠️ Quota für ${oldTag} auf [${modelLabel}] erreicht. Wechsle sofort zu ${keyInfo.tag}...`, true);
+                    continue;
+                  } else {
                     if (mIdx < models.length - 1) {
+                      const nextModel = models[mIdx + 1];
+                      const nextLabel = `Fallback ${mIdx + 1}: ${nextModel}`;
+                      setAiQaStatus(`⚠️ Quota für alle ${totalKeys} Keys auf [${modelLabel}] erschöpft. Wechsle zu [${nextLabel}]...`, true);
                       break;
                     } else {
-                      throw new Error(`Keines der konfigurierten Modelle wird von der Gemini API unterstützt.`);
+                      userKeysFailed = true;
+                      break;
                     }
                   }
+                }
 
-                  if (isQuotaExhaustedError(err2)) {
-                    keysTriedForThisModel++;
-                    if (keysTriedForThisModel < totalKeys) {
-                      const oldTag = keyInfo.tag;
-                      keyInfo = rotateToNextApiKey();
-                      setAiQaStatus(`⚠️ Quota für ${oldTag} erreicht. Wechsle sofort zu ${keyInfo.tag}...`, true);
-                      continue;
-                    } else {
-                      if (mIdx < models.length - 1) {
-                        break;
+                if (!isOverloadError(err1)) {
+                  throw err1;
+                }
+
+                // Modell überlastet
+                if (isDefaultModel) {
+                  await sleepWithCountdown(10, (m) => setAiQaStatus(m, true), `${keyInfo.tag} ⚠️ [${modelLabel}] überlastet. Warte 10s vor 2. Versuch`);
+                  try {
+                    keyInfo = getActiveKeyInfo();
+                    setAiQaStatus(`${keyInfo.tag} 2. Versuch mit [${modelLabel}]...`, true);
+                    const u2 = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${keyInfo.key}`;
+                    const r2 = await fetch(u2, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        contents: [{ parts: [{ text: systemPrompt }, { text: userPrompt }] }],
+                        generationConfig: { temperature: 0.3 }
+                      })
+                    });
+                    if (!r2.ok) {
+                      let errorMsg = `HTTP ${r2.status}: ${r2.statusText}`;
+                      try { const err = await r2.json(); if (err?.error?.message) errorMsg = err.error.message; } catch (e) {}
+                      throw new Error(errorMsg);
+                    }
+                    const d2 = await r2.json();
+                    answerText = d2.candidates?.[0]?.content?.parts?.[0]?.text || 'Keine Antwort erhalten.';
+                    break;
+                  } catch (err2) {
+                    if (isModelNotFoundError(err2)) {
+                      if (mIdx < models.length - 1) break;
+                      userKeysFailed = true;
+                      break;
+                    }
+                    if (isQuotaExhaustedError(err2)) {
+                      keysTriedForThisModel++;
+                      if (keysTriedForThisModel < totalKeys) {
+                        const oldTag = keyInfo.tag;
+                        keyInfo = rotateToNextApiKey();
+                        setAiQaStatus(`⚠️ Quota für ${oldTag} erreicht. Wechsle sofort zu ${keyInfo.tag}...`, true);
+                        continue;
                       } else {
-                        throw new Error(`Kontingentlimit für alle Modelle auf allen Keys erreicht.`);
+                        if (mIdx < models.length - 1) break;
+                        userKeysFailed = true;
+                        break;
                       }
                     }
+                    if (!isOverloadError(err2)) throw err2;
+                    if (mIdx < models.length - 1) {
+                      const nextModel = models[mIdx + 1];
+                      const nextLabel = `Fallback ${mIdx + 1}: ${nextModel}`;
+                      setAiQaStatus(`${keyInfo.tag} ⚠️ [${modelLabel}] überlastet. Wechsle sofort zu [${nextLabel}]...`, true);
+                      break;
+                    } else {
+                      userKeysFailed = true;
+                      break;
+                    }
                   }
-                  if (!isOverloadError(err2)) throw err2;
+                } else {
                   if (mIdx < models.length - 1) {
                     const nextModel = models[mIdx + 1];
                     const nextLabel = `Fallback ${mIdx + 1}: ${nextModel}`;
                     setAiQaStatus(`${keyInfo.tag} ⚠️ [${modelLabel}] überlastet. Wechsle sofort zu [${nextLabel}]...`, true);
                     break;
                   } else {
-                    throw new Error(`Alle ${models.length} Modelle (${models.join(', ')}) sind überlastet. Bitte versuche es später erneut.`);
+                    userKeysFailed = true;
+                    break;
                   }
-                }
-              } else {
-                // Fallback-Modelle: Bei Überlastung sofort nächstes Fallback probieren
-                if (mIdx < models.length - 1) {
-                  const nextModel = models[mIdx + 1];
-                  const nextLabel = `Fallback ${mIdx + 1}: ${nextModel}`;
-                  setAiQaStatus(`${keyInfo.tag} ⚠️ [${modelLabel}] überlastet. Wechsle sofort zu [${nextLabel}]...`, true);
-                  break;
-                } else {
-                  throw new Error(`Alle ${models.length} Modelle (${models.join(', ')}) sind überlastet. Bitte versuche es später erneut.`);
                 }
               }
             }
+
+            if (answerText) break;
           }
 
-          if (answerText) break; // Antwort erfolgreich generiert
+          // Falls eigene Keys des Nutzers erschöpft oder überlastet sind -> Fallback auf Server-KI-Proxy!
+          if (!answerText && userKeysFailed) {
+            if (serverHasAiFallback) {
+              setAiQaStatus('⚠️ Eigene Keys erschöpft. Wechsle zu serverseitigem KI-Fallback...', true);
+              answerText = await callServerAiProxy(systemPrompt, userPrompt, models, (m) => setAiQaStatus(m, true));
+            } else {
+              throw new Error(`Kontingentlimit für alle konfigurierten Modelle auf deinen hinterlegten Keys erreicht.`);
+            }
+          }
         }
 
         rawAiQaAnswerText = answerText;
@@ -5302,6 +5511,10 @@ Deine Aufgabe ist es, Fragen fundiert, präzise und wahrheitsgetreu AUSSCHLIESSL
       } catch (err) {
         setAiQaStatus(`❌ Fehler: ${err.message}`, false);
         console.error(err);
+      } finally {
+        if (!aiCooldownTimerInterval) {
+          updateAiQuotaUI();
+        }
       }
     });
 
@@ -5507,6 +5720,7 @@ Deine Aufgabe ist es, Fragen fundiert, präzise und wahrheitsgetreu AUSSCHLIESSL
       loadInitialData();
       populateKeywordDropdown();
       loadLegalInfo();
+      checkServerAiFallback();
     });
 
     // Global ESC Key Handler: Close open modals, lightbox, and tools dropdown

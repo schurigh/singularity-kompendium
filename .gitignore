@@ -4,6 +4,7 @@
 
 # 1. Server-Konfiguration mit Passwörtern & persönlichen Daten
 config.php
+.rate_limits.json
 
 # 2. Python Cache & Bytecode
 __pycache__/
@@ -21,3 +22,6 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# 5. Interne Dokumente & Notizen
+intern/

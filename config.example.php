@@ -22,3 +22,10 @@ define('LEGAL_EMAIL', 'kontakt@deine-domain.de');
 define('LEGAL_HOSTING_NAME', 'Hosting-Anbieter Name (z. B. All-Inkl.com)');
 define('LEGAL_HOSTING_ADDRESS', 'Musterstraße 1, 12345 Musterstadt, Deutschland');
 define('LEGAL_HOSTING_URL', 'https://dein-hoster.de');
+
+// 5. Google Gemini API Fallback-Keys (optional für Besucherfragen ohne eigenen Key)
+define('GEMINI_FALLBACK_KEYS', [
+    // 'DEIN_GEMINI_API_KEY_1',
+    // 'DEIN_GEMINI_API_KEY_2',
+]);
+

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.webp" alt="Peter H. Diamandis' Singularity Kompendium" width="100%">
+  <img src="img/logo.webp" alt="Peter H. Diamandis' Singularity Kompendium" width="100%">
 </p>
 
 # 🔭 Peter H. Diamandis' Singularity Kompendium
@@ -14,11 +14,11 @@
 
 | Startseite | Substack-Scanner |
 |:---:|:---:|
-| ![Startseite](screenshots/sing-komp_1.webp) | ![Substack-Scanner](screenshots/sing-komp_2.webp) |
+| ![Startseite](img/screenshots/sing-komp_1.webp) | ![Substack-Scanner](img/screenshots/sing-komp_2.webp) |
 
 | Suche & Filter | KI-Assistent (RAG Q&A) |
 |:---:|:---:|
-| ![Suche und Filter](screenshots/sing-komp_3.webp) | ![KI-Assistent RAG QnA](screenshots/sing-komp_4.webp) |
+| ![Suche und Filter](img/screenshots/sing-komp_3.webp) | ![KI-Assistent RAG QnA](img/screenshots/sing-komp_4.webp) |
 
 ---
 
@@ -83,7 +83,8 @@ singularity-kompendium/
 ├── config.example.php      # Konfigurationsvorlage
 ├── diamandis-ingest.py     # Python CLI für Batch-Verarbeitung
 ├── images/                 # Gecrawlte Artikelbilder (NICHT in Git)
-├── screenshots/            # README-Screenshots
+├── img/                    # UI-Assets, Logo & Favicons
+│   └── screenshots/        # README-Screenshots
 └── .gitignore
 ```
 

@@ -1,0 +1,39 @@
+# =========================================================================
+# Peter H. Diamandis Kompendium - Apache Webserver Konfiguration (.htaccess)
+# Optimiert fuer maximale Sicherheit, HTTP-304 Revalidierung & Gzip-Kompression
+# =========================================================================
+
+# 1. Schutz sensibler System- und Konfigurationsdateien vor direktem Webaufruf
+<FilesMatch "^(config\.php|config\.example\.php|\.rate_limits\.json|.*\.backup\.js|\.git.*)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# 2. ETag-Generierung auf Basis von Aenderungsdatum und Dateigroesse
+FileETag MTime Size
+
+# 3. HTTP Conditional Validation (304 Not Modified Handshake)
+# Caching im Browser erlauben, aber Revalidierung vor jeder Nutzung erzwingen (no-cache)
+<IfModule mod_headers.c>
+    <FilesMatch "\.(pdf|json|webp|png|jpg|jpeg|gif|svg|ico|js|html)$">
+        Header set Cache-Control "no-cache"
+    </FilesMatch>
+
+    # Sicherheits-Header
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# 4. Gzip / Deflate Kompression via mod_deflate (~80% Ladezeit-Gewinn)
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript
+    AddOutputFilterByType DEFLATE application/javascript application/x-javascript
+    AddOutputFilterByType DEFLATE application/json application/xml application/xhtml+xml
+    AddOutputFilterByType DEFLATE image/svg+xml
+</IfModule>

@@ -6,7 +6,7 @@ header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     http_response_code(200);
     exit;
 }
@@ -19,10 +19,10 @@ if (!$url || !preg_match('#^https?://#i', $url)) {
     exit;
 }
 
-// Nur erlaubte Domains (Sicherheit)
+// Nur erlaubte Domains (Sicherheit: strikte Host-Prüfung verhindert SSRF)
 $parsed = parse_url($url);
-$host = isset($parsed['host']) ? $parsed['host'] : '';
-if (!preg_match('#(substack\.com|substackcdn\.com)$#i', $host)) {
+$host = isset($parsed['host']) ? strtolower($parsed['host']) : '';
+if (!preg_match('#(^|\.)(substack\.com|substackcdn\.com)$#i', $host)) {
     http_response_code(403);
     echo "Nur Substack-URLs sind über diesen Proxy erlaubt.";
     exit;
